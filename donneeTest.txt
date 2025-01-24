@@ -1,0 +1,28 @@
+##INFORMATION DU SUPERUSER
+id:1
+Email: eIra@admin.com
+password : SUPEREIRA
+Username : superUser
+
+####INFORMATIONS DU ADMIN TEST
+id :2
+Username : admin
+email : admin@example.com
+password : adminpass
+
+####INFORMATIONS DU DOCTEUR TEST1
+id : 6
+Username : drmouas
+email : drmouas@gmail.com
+password : drmouas
+
+####INFORMATIONS DU DOCTEUR TEST2
+Username : drjean
+email : drjean@gmail.com
+password : drjean
+
+
+
+###APORT APRÈS 
+Lorsque le compte de l'utilisateur est créé lui envoyer ses identifiants via email
+Envoyer dans le mail le lien du front pour que lorsque l'utilisateur clique ça le renvoie sur sa page de connexion
