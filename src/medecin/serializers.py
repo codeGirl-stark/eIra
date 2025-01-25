@@ -10,7 +10,8 @@ class MedecinSerializer(serializers.ModelSerializer):
 class PhotoProfilSerializer(serializers.ModelSerializer):
     class Meta:
         model = PhotoProfil
-        fields = "__all__"
+        fields = ['id', 'avatar', 'user']  # Inclure uniquement les champs nécessaires
+        read_only_fields = ['user']  # Rendre le champ user en lecture seule
         
     def update(self, instance, validated_data):
         instance.id = validated_data.get('id', instance.id)

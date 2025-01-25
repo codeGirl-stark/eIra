@@ -68,15 +68,6 @@ class MedecinProfileView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def patch(self, request):
-        """Modifier partiellement le profil (par exemple, juste la photo)."""
-        profile = self.get_object()
-        serializer = MedecinSerializer(profile, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
     def delete(self, request, *args, **kwargs):
         # Supprimer le profil du médecin
         profile = self.get_object()
@@ -93,9 +84,10 @@ class PhotoProfileView(viewsets.ModelViewSet):
 
     def get_queryset(self):
         try:
-            user = self.request.user  # L'utilisateur est récupéré à partir du token JWT
+            user = self.request.user
+              # L'utilisateur est récupéré à partir du token JWT
             return self.queryset.filter(user=user)
-        except (User.DoesNotExist, TokenError):
+        except (PhotoProfil.DoesNotExist, TokenError):
             return PhotoProfil.objects.none()  # Retourne un queryset vide si l'utilisateur n'est pas trouvé ou le token est invalide
 
     def perform_create(self, serializer):
@@ -108,6 +100,13 @@ class PhotoProfileView(viewsets.ModelViewSet):
                 serializer.save(user=user)
         except (User.DoesNotExist, TokenError):
             raise ValidationError({'error': 'Invalid UID or Token'})
+        
+    def delete(self, request, *args, **kwargs):
+        # Supprimer la photo de profil
+        profile = self.get_object()
+        profile.delete()
+        return Response({"message": "Profil supprimé avec succès."}, status=status.HTTP_200_OK)
+    
     
  
  ####Exporter la base de données   
@@ -116,6 +115,7 @@ class ExportDatabaseAPIView(APIView):
     
     def post(self, request,*args, **kwargs):
         format = request.data.get('format')
+        print(f"format : {format}" )
         
         if format == "csv":
             return self.export_to_csv(request)
@@ -214,7 +214,7 @@ class ExportDatabaseAPIView(APIView):
         Log.objects.create(
             date = now(),
             libelle=f"{user.username} a {action}.",
-            medecin=get_object_or_404(Medecin, user=user),
+            medecin=get_object_or_404(User, id=user.id),
         )
 
    

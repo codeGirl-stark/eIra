@@ -25,7 +25,7 @@ class Log (models.Model) :
     id = models.AutoField(primary_key=True)
     date = models.DateTimeField(verbose_name= "Date")
     libelle = models.CharField(max_length=255)
-    medecin = models.ForeignKey(Medecin, on_delete=models.CASCADE)
+    medecin = models.ForeignKey(User, on_delete=models.CASCADE,related_name='log')
 
     
     def __str__(self):
