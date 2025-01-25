@@ -26,7 +26,6 @@ decorator==4.4.2
 defusedxml==0.7.1
 distlib==0.3.7
 distro==1.7.0
-distro-info===1.1build1
 Django==5.0.1
 django-cors-headers==4.6.0
 django-dotenv==1.4.2
