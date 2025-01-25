@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+apt-get update && apt-get install -y \
+ default-libmysqlclient-dev \
+    libmysqlclient-dev \
+    build-essential \
+    default-libmysqlclient-dev \
+    python3-dev
