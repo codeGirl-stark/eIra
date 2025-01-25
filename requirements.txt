@@ -124,7 +124,6 @@ pyRFC3339==1.1
 python-dotenv==1.0.1
 python-environ==0.4.54
 python-json-logger==3.2.1
-python-xapp==2.2.1
 pytz==2022.1
 pyudev==0.22.0
 pyzmq==26.2.0
