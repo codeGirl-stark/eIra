@@ -15,16 +15,26 @@ import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
+from decouple import config
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+ENVIRONMENT = config('ENVIRONMENT', default='local')  # Par défaut, 'local'
 
 load_dotenv()
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
+if ENVIRONMENT == 'production':
+    from .settings_prod import *
+else:
+    from .settings_local import *
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.environ.get('SECRET_KEY')
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -36,7 +46,6 @@ ALLOWED_HOSTS = [
 
 
 # Application definition
-
 INSTALLED_APPS = [
     #default app installed
     'django.contrib.admin',
@@ -156,7 +165,7 @@ DATABASES = {
     'default': {
         'ENGINE': os.getenv("ENGINE"),
         'NAME': os.getenv("NAME"),
-        'USER': os.getenv("UTILISATEUR"), # le user de mon localhost
+        'USER': os.getenv("USER"), # le user de mon localhost
         'PASSWORD': os.getenv("PASSWORD"), # le password de mon localhost 
         'HOST': os.getenv("HOST"),  # Ou spécifiez l'adresse IP ou le nom d'hôte du serveur MySQL
         'PORT': os.getenv("PORT"),  # Le port par défaut de MySQL est 3306

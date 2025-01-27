@@ -16,6 +16,7 @@ oauthlib==3.2.0
 pypdf==5.1.0
 pypdf2==3.0.1
 python-dotenv==1.0.1
+python-decouple>=3.8
 python-environ==0.4.54
 qrcode==8.0
 reportlab==3.6.8
