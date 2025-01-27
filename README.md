@@ -8,7 +8,7 @@ envoyer le projet sur github
 
 ETAPE 2 :
 Cloner le projet sur PYHTONANYWHERE
----git clone https://github.com/votre-repo(ici il s'agit du lien HTTPS du repo sur github)
+---git clone https://github.com/votre-repo (ici il s'agit du lien HTTPS du repo sur github)
 
 ETAPE 3 :
 Créez et activez un environnement virtuel Python 3.10, Remplacez testenv par le nom de votre choix:
