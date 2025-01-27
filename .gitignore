@@ -1,7 +1,6 @@
 /env
 .env
 
-src/eIra/settings_local.py
 
 donneesTest.txt
 deploiementPythonAnywhere.txt
