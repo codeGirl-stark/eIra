@@ -33,7 +33,7 @@ else:
     from .settings_local import *
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY')
+SECRET_KEY = 'django-insecure-@*kr9-zwac9e)k&ii^@5d-6k2%27gp4i+=$&i!7u^#q@tlc9)h'
 
 
 # SECURITY WARNING: don't run with debug turned on in production!
