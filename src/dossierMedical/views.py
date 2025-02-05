@@ -1,16 +1,19 @@
-from django.shortcuts import render
+
+from medecin.models import Log
 from rest_framework import status
 from admin_app.models import User
 from rest_framework import generics
 from datetime import date, timedelta
 from dossierMedical import serializers
+from django.utils.timezone import now
 from rest_framework.views import APIView
 from datetime import datetime, timedelta
-from .models import DossierMedical,Patient, Visite
 from django.utils.timezone import make_aware
 from rest_framework.response import Response
 from django.db.models.functions import TruncDate
+from .models import DossierMedical,Patient, Visite
 from rest_framework.exceptions import ValidationError
+from django.shortcuts import get_object_or_404, render
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .serializers import DossierMedicalSerializer, PatientSerializer,VisiteSerializer
 
@@ -22,6 +25,9 @@ class PatientView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, "création d'un patient")
+        
         """Créer un patient pour le médecin connecté."""
         if not request.user.is_doctor:
             return Response({"erreur": "Seuls les médecins peuvent créer des patients."}, status=status.HTTP_403_FORBIDDEN)
@@ -37,6 +43,9 @@ class PatientView(APIView):
 
 
     def get(self, request):
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, "récupération des informations des patients enregistrés.")
+        
         """Obtenir les patients associés au médecin connecté."""
         if not request.user.is_doctor:
             return Response({"erreur": "Seuls les médecins peuvent consulter leurs patients."}, status=status.HTTP_403_FORBIDDEN)
@@ -57,6 +66,10 @@ class PatientView(APIView):
         except Patient.DoesNotExist:
             return Response({"erreur": "Patient introuvable ou non associé au médecin connecté."}, status=status.HTTP_404_NOT_FOUND)
         
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"modification des informations du patient{patient.nom} {patient.prenom}")
+        
+        
         serializer = PatientSerializer(patient, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -75,8 +88,20 @@ class PatientView(APIView):
         except Patient.DoesNotExist:
             return Response({"erreur": "Patient introuvable ou non associé au médecin connecté."}, status=status.HTTP_404_NOT_FOUND)
         
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"suppression du patient {patient.nom} {patient.prenom}")
+        
         patient.delete()
         return Response({"message": "Patient supprimé avec succès."}, status=status.HTTP_200_OK)
+    
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+    
     
 
 ###Vue pour obtenir les informations d'un patient spécifique
@@ -90,8 +115,19 @@ class GetPatientDetail(APIView):
         except Patient.DoesNotExist:
             return Response({"erreur": "Patient introuvable ou non associé au médecin connecté."}, status=status.HTTP_404_NOT_FOUND)
         
+        # Enregistrer l'action dans les logs
+        self.log_action(self.request.user, f"récupération des informations du patient {patient.nom} {patient.prenom}")
+        
         serializer = PatientSerializer(patient)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
 
 
 ##Vue pour récupérer tous les patients
@@ -103,9 +139,20 @@ class GetAllPatients(APIView):
         if not request.user.is_admin:
             return Response({"erreur": "Accès réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         
+        # Enregistrer l'action dans les logs
+        self.log_action(self.request.user, "récupération des informations de tous les patients de la base de données.")
+        
         patients = Patient.objects.all()
         serializer = PatientSerializer(patients, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
     
     
 ###Vues pour créer, modifier et supprimer un dossier médical
@@ -117,10 +164,15 @@ class DossierMedicalView(APIView):
     def post(self, request):
         """Créer un dossier médical pour un patient spécifique."""
         patient_id = request.data.get("patient")
+        
         try:
             patient = Patient.objects.get(id=patient_id)
         except Patient.DoesNotExist:
             return Response({"erreur": "Patient introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Enregistrer l'action dans les logs
+        self.log_action(self.request.user, f"création du dossier médical du patient {patient.nom} {patient.prnom}")
+        
 
         data = request.data.copy()
         data['patient'] = patient_id  # Associer le patient
@@ -148,6 +200,10 @@ class DossierMedicalView(APIView):
             dossier = DossierMedical.objects.get(numDossier=num_dossier, patient=patient)
         except DossierMedical.DoesNotExist:
             return Response({"erreur": "Dossier médical introuvable pour ce patient."}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"modification du dossier médical {num_dossier}")
+        
 
         serializer = DossierMedicalSerializer(dossier, data=request.data, partial=True)
         if serializer.is_valid():
@@ -172,9 +228,21 @@ class DossierMedicalView(APIView):
         except DossierMedical.DoesNotExist:
             return Response({"erreur": "Dossier médical introuvable pour ce patient."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"supression du dossier médical {num_dossier}")
+        
+
         dossier.delete()
         return Response({"message": "Dossier médical supprimé avec succès."}, status=status.HTTP_200_OK)
     
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+        
     
 ###Get le dossier d'un patient spécifique
 class DossiersMedicalByPatientView(generics.ListAPIView):
@@ -189,21 +257,24 @@ class DossiersMedicalByPatientView(generics.ListAPIView):
         except DossierMedical.DoesNotExist:
             return Response({"erreur": "Dossier médical introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"récupération du dossier médical du patient {patient.nom} {patient.prenom}")
+        
         serializer = DossierMedicalSerializer(dossier)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
-  
-###Get tous les dossiers    
-class AllDossiersMedicalView(generics.ListAPIView):
-    serializer_class = DossierMedicalSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_queryset(self):
-        """Récupère tous les dossiers médicaux dans la base de données."""
-        return DossierMedical.objects.all()  # Aucun filtre, récupère tous les dossiers
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
     
 
-#####Partie des visites médicales 
+"""
+    Partie des visites médicales 
+"""
 
 ####Vue pour CRUD un patient
 class VisitesView(APIView):
@@ -218,12 +289,25 @@ class VisitesView(APIView):
         # Récupérer tous les patients associés au médecin
         patients = Patient.objects.filter(medecin=medecin)
 
-        # Récupérer toutes les visites médicales des patients du médecin
-        visites = Visite.objects.filter(patient__in=patients)
+        # Filtrer et supprimer les visites médicales passées
+        now = make_aware(datetime.now())
+        visites_passees = Visite.objects.filter(patient__in=patients, dateRdv__lt=now)
+        visites_passees.delete()
+        
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, "suppression des visites passées")
+        
+
+        # Récupérer les visites restantes
+        visites = Visite.objects.filter(patient__in=patients, dateRdv__gte=now)
+        
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, "recupération des visites")
 
         # Sérialiser les données
         serializer = VisiteSerializer(visites, many=True)
 
+        # Retourner les données sérialisées
         return Response(serializer.data, status=status.HTTP_200_OK)
     
 
@@ -235,6 +319,9 @@ class VisitesView(APIView):
         except Patient.DoesNotExist:
             return Response({"erreur": "Patient introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"création des visites")
+        
         data = request.data.copy()
         data['patient'] = patient_id  # Associer le patient
         serializer = VisiteSerializer(data=data)
@@ -267,6 +354,10 @@ class VisitesView(APIView):
                 return Response({"erreur": "Le prochain rendez-vous doit être dans plus de 24 heures pour pouvoir être modifié."}, status=status.HTTP_400_BAD_REQUEST)
             
             serializer.save()
+            
+            # Enregistrer l'action dans les logs
+            self.log_action(request.user, f"modification de la visite du {visite.dateRdv}")
+        
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -288,7 +379,20 @@ class VisitesView(APIView):
             return Response({"erreur": "Le prochain rendez-vous doit être dans plus de 24 heures pour pouvoir être annulée."}, status=status.HTTP_400_BAD_REQUEST)
 
         visite.delete()
+        
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"suppression de la visite du {visite.dateRdv}")
+        
         return Response({"message": "Visite annulée avec succès."}, status=status.HTTP_200_OK)
+    
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+    
 
     
 ##Get visite en fonction d'une date
@@ -301,6 +405,10 @@ class VisitesByDateView(generics.ListAPIView):
 
     def get_queryset(self):
         medecin = self.request.user
+        
+        # Enregistrer l'action dans les logs
+        self.log_action(self.request.user, "modification de toutes les visites médicales.")
+        
         
         date_visite = self.request.query_params.get('date_visite', None)
         if not date_visite:
@@ -331,6 +439,15 @@ class VisitesByDateView(generics.ListAPIView):
                 visite.delete()
         return queryset
     
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+    
+    
     
 ###Vue pour obtenir les informations d'une visite spéccifique
 class GetVisiteDetail(APIView):
@@ -340,8 +457,42 @@ class GetVisiteDetail(APIView):
         """Obtenir les informations d'un patient spécifique."""
         try:
             visite = Visite.objects.get(id=visite_id)
-        except Patient.DoesNotExist:
+        except Visite.DoesNotExist:
             return Response({"erreur": "Visite introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, f"récupération des détails de la visite du {visite.dateRdv}")
+        
         
         serializer = VisiteSerializer(visite)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+    
+
+###Get tous les dossiers    
+class AllVisitesView(generics.ListAPIView):
+    serializer_class = VisiteSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        # Enregistrer l'action dans les logs
+        self.log_action(self.request.user, "récupération de toutes les visites")
+        
+        """Récupère tous les dossiers médicaux dans la base de données."""
+        return Visite.objects.all()  # Aucun filtre, récupère tous les dossiers
+    
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} a {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+    

@@ -4,6 +4,8 @@ from .models import DossierMedical, Patient, Visite
 
 ###Sérializer pour la table Patient
 class PatientSerializer(serializers.ModelSerializer) :
+    medecin_info = serializers.SerializerMethodField()
+    
     class Meta :
         model = Patient
         fields = '__all__'
@@ -23,6 +25,12 @@ class PatientSerializer(serializers.ModelSerializer) :
 
         return data
         
+    def get_medecin_info(self, obj):
+        """Récupère l'email et l'username du médecin qui a enregistré le patient."""
+        return {
+            "email": obj.medecin.email,
+            "username": obj.medecin.username
+        }
 
 ####Serializer de la table Visite
 class VisiteSerializer(serializers.ModelSerializer):

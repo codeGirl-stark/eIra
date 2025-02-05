@@ -107,10 +107,14 @@ JWT_AUTH = {
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
+    "https://e-iraapp-gbologangbejasmines-projects.vercel.app",
+    "https://e-iraapp.vercel.app",
+    "https://e-iraapp-git-main-gbologangbejasmines-projects.vercel.app",
 ]
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://.*\.aliklan\.bj$",
+    r"^https://e-iraapp-.*\.vercel\.app$",
+    r"^https://.*\.e-iraapp\.vercel\.app$",
 ]
 
 CORS_ALLOW_CREDENTIALS = True

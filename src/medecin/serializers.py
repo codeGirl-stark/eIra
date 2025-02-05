@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from medecin.models import Medecin, PhotoProfil
+from medecin.models import Medecin, PhotoProfil, Log
+from admin_app.models import User
 
 class MedecinSerializer(serializers.ModelSerializer):
     class Meta:
@@ -28,3 +29,12 @@ class PhotoProfilSerializer(serializers.ModelSerializer):
             if file.size > 2 * 1024 * 1024:  # 2 MB max
                 raise serializers.ValidationError("La taille du fichier est trop large.")
         return file
+    
+class LogSerializer(serializers.ModelSerializer):
+    medecin_email = serializers.EmailField(source='medecin.email', read_only=True)
+
+    class Meta:
+        model = Log
+        fields = ['id', 'date', 'libelle', 'medecin_email']
+        
+    

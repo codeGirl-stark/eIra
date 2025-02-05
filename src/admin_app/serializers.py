@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
+
 ###Serializer pour création de l'admin
 class AdminUserSerializer(serializers.ModelSerializer):
     #Validation de l'adresse mail

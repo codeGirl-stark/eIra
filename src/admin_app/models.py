@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils.timezone import now
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 
 
@@ -39,3 +40,11 @@ class User(AbstractUser):
         if self.is_admin:
             self.is_staff = True
         super().save(*args, **kwargs)
+        
+        
+class UserVisit(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="visits")
+    timestamp = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.timestamp}"
