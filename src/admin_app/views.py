@@ -4,7 +4,7 @@ from django.db.models import Count
 from .models import User, UserVisit
 from rest_framework import serializers
 from rest_framework.views import APIView
-from .permissions import IsActivePermission
+from .permissions import IsActivePermission, IsSuperOrAdminUser
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
@@ -15,7 +15,7 @@ from django.shortcuts import get_object_or_404, render
 from rest_framework_simplejwt.tokens import RefreshToken
 from dossierMedical.models import Patient, DossierMedical
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from    .serializers import AdminUserSerializer, DoctorUserSerializer, LoginSerializer
+from .serializers import AdminUserSerializer, DoctorUserSerializer, LoginSerializer
 
 User = get_user_model()
 
@@ -23,7 +23,7 @@ User = get_user_model()
 class AdminUserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.filter(is_admin=True)
     serializer_class = AdminUserSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperOrAdminUser]  # Permettre aux superuser et admin d'ajouter un autre admin
 
 
 ##Création du medecin

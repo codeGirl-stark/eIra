@@ -171,7 +171,7 @@ class DossierMedicalView(APIView):
             return Response({"erreur": "Patient introuvable."}, status=status.HTTP_404_NOT_FOUND)
         
         # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, f"création du dossier médical du patient {patient.nom} {patient.prnom}")
+        self.log_action(self.request.user, f"création du dossier médical du patient {patient.nom} {patient.prenom}")
         
 
         data = request.data.copy()
