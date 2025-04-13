@@ -10,14 +10,14 @@ from admin_app.models import User
 from rest_framework import status
 from django.utils.timezone import now
 from rest_framework import serializers
+from medecin.models import Medecin, Log
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import HttpResponse, JsonResponse
 from admin_app.serializers import DoctorUserSerializer
 from dossierMedical.serializers import DossierMedicalSerializer, PatientSerializer
-from medecin.models import Medecin, Log, PhotoProfil
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, NotFound
 from django.shortcuts import get_object_or_404, render
 from rest_framework import generics, permissions,viewsets
 from dossierMedical.models import Patient, DossierMedical
@@ -25,7 +25,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from medecin.serializers import MedecinSerializer, PhotoProfilSerializer, LogSerializer
+from medecin.serializers import MedecinSerializer, LogSerializer
 
 
 
@@ -36,12 +36,14 @@ class MedecinProfileView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get_object(self):
-        # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, "erécupération du profil")
+        """Récupère le profil du médecin connecté."""
         try:
-            return Medecin.objects.get(user=self.request.user)
+            medecin = Medecin.objects.get(user=self.request.user)
+            self.log_action(self.request.user, "récupération du profil médecin")
+            return medecin
         except Medecin.DoesNotExist:
-            raise serializers.ValidationError({"erreur": "Profil non trouvé."})
+            raise NotFound({"erreur": "Profil non existant."})  # Utilisation de NotFound pour une meilleure gestion d'erreur
+
 
     def get(self, request):
         # Récupérer les informations du profil du médecin connecté
@@ -96,76 +98,34 @@ class MedecinProfileView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
-    
-    
-#Vue pour enregistrer et récupérer la photo de profil
-class PhotoProfileView(viewsets.ModelViewSet):
-    queryset = PhotoProfil.objects.all()
-    serializer_class = PhotoProfilSerializer
-    authentication_classes = [JWTAuthentication]
+
+####Récuperer le profil de l'assistant grace à son id
+class GetAssistantById(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = MedecinSerializer
 
-    def get_queryset(self):
+    def get(self, request, id):
+        """Récupère un médecin via son ID avec son institution."""
+        medecin = get_object_or_404(Medecin, user__id=id)
+        
         # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, "récupération de la photo de profil")
-        try:
-            user = self.request.user
-              # L'utilisateur est récupéré à partir du token JWT
-            return self.queryset.filter(user=user)
-        except (PhotoProfil.DoesNotExist, TokenError):
-            return PhotoProfil.objects.none()  # Retourne un queryset vide si l'utilisateur n'est pas trouvé ou le token est invalide
+        self.log_action(request.user, f"Récupération des informations du docteur {medecin.user.email}")
 
-    def perform_create(self, serializer):
-        # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, "création de la photo de profil")
-        
-        user = self.request.user  # Récupère l'utilisateur à partir du token JWT
-        try:
-            if PhotoProfil.objects.filter(user=user).exists():
-                avatar = PhotoProfil.objects.get(user=user)
-                serializer.update(avatar, serializer.validated_data)
-            else:
-                serializer.save(user=user)
-        except (User.DoesNotExist, TokenError):
-            raise ValidationError({'error': 'Invalid UID or Token'})
-        
-        
-    def delete(self, request, *args, **kwargs):
-        # Enregistrer l'action dans les logs
-        self.log_action(request.user, "suppression de la photo de profil")
-        
-        # Récupérer l'objet PhotoProfil de l'utilisateur connecté
-        photo_profile = get_object_or_404(PhotoProfil, user=request.user)
+        serializer = self.serializer_class(medecin)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-        # Vérifier si une photo de profil existe
-        if photo_profile.avatar:
-            # Supprimer physiquement le fichier si le chemin existe
-            if os.path.exists(photo_profile.avatar.path):
-                os.remove(photo_profile.avatar.path)
-            
-            # Supprimer la référence à la photo dans la base de données
-            photo_profile.avatar = None
-            photo_profile.save()
-
-            return Response({"message": "Photo de profil supprimée avec succès."}, status=status.HTTP_200_OK)
-        
-        # Si aucune photo de profil n'est définie
-        return Response({"message": "Aucune photo de profil à supprimer."}, status=status.HTTP_400_BAD_REQUEST)
-    
-    
     def log_action(self, user, action):
-        """Log l'action effectuée."""
+        """Enregistre une action dans les logs."""
         Log.objects.create(
-            date = now(),
-            libelle=f"{user.username} a {action}.",
+            date=now(),
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
     
-    
- 
+
  ####Exporter la base de données   
 class ExportDatabaseAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -270,7 +230,7 @@ class ExportDatabaseAPIView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
 
@@ -332,12 +292,13 @@ class StatAPIView(APIView):
         # Récupérer tous les dossiers médicaux du médecin (Optimisé par .prefetch_related)
         dossiers = DossierMedical.objects.filter(patient__medecin=medecin).select_related('patient')
         
+        total_assistants = User.objects.filter(doctor = medecin).count()
         
         total_patients = patients.count()
         
         total_dossiers = dossiers.count()
         
-        print(total_patients, total_dossiers)
+        ##print(total_patients, total_dossiers)
         
         if total_patients == 0:
             return Response({"message": "Aucun patient trouvé pour ce médecin"}, status=status.HTTP_400_BAD_REQUEST)
@@ -383,7 +344,13 @@ class StatAPIView(APIView):
 
         # Calcul des statistiques par catégorie
         stats = {}
-         # Ajouter les totaux et les pourcentages des patients et dossiers
+        # Ajouter les totaux et les pourcentages des assistants
+        stats['total_assistants'] = {
+            'count': total_assistants,
+            'percentage': self.calc_percentage(total_assistants, total_assistants)  # 100% pour les patients
+        }
+        
+        # Ajouter les totaux et les pourcentages des patients et dossiers
         stats['total_patients'] = {
             'count': total_patients,
             'percentage': self.calc_percentage(total_patients, total_patients)  # 100% pour les patients
@@ -450,7 +417,7 @@ class StatAPIView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
     
@@ -461,14 +428,28 @@ class LogAPIView(APIView):
     def get(self, request, *args, **kwargs):
         user = request.user
 
-        """Récupérer les logs selon le rôle de l'utilisateur."""
-        if request.user.is_admin:
-            logs = Log.objects.all()  # L'admin récupère tous les logs
-        else:
-            logs = Log.objects.filter(medecin=request.user)  # Un médecin ne voit que ses propres logs
+        if user.role == "admin":
+            logs = Log.objects.all()
 
+        elif user.role == "institution":
+            # L'institution récupère ses propres logs
+            logs = Log.objects.filter(medecin=user)
+
+            # Médecins créés par l'institution
+            doctors = User.objects.filter(role="doctor", institution=user)
+
+            # Assistants de ces médecins
+            assistants = User.objects.filter(role="assistant", doctor__in=doctors)
+
+            # Ajouter les logs des médecins et de leurs assistants
+            logs = logs | Log.objects.filter(medecin__in=doctors) | Log.objects.filter(medecin__in=assistants)
+
+        else:
+            # Les autres utilisateurs ne voient que leurs propres logs
+            logs = Log.objects.filter(medecin=user)
+
+        # logs = logs.order_by('-date')  # Optionnel : trier du plus récent au plus ancien
         serializer = LogSerializer(logs, many=True)
-        
         return Response(serializer.data, status=status.HTTP_200_OK)
     
     
@@ -487,7 +468,7 @@ class DeleteLogView(APIView):
             log_ids = log_ids.split(',')
         
         # Vérification des droits de suppression
-        if request.user.is_admin:
+        if request.user.role == "admin":
             logs_to_delete = Log.objects.filter(id__in=log_ids)
         else:
             logs_to_delete = Log.objects.filter(id__in=log_ids, medecin=request.user)
@@ -503,7 +484,7 @@ class DeleteLogView(APIView):
         """Ajoute une entrée dans les logs pour suivre les actions importantes."""
         Log.objects.create(
             date=now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=user,
         )
 

@@ -19,3 +19,15 @@ class IsSuperOrAdminUser(BasePermission):
 
     def has_permission(self, request, view):
         return request.user and (request.user.is_superuser or request.user.is_admin)
+    
+
+class IsAssistantOfDoctor(BasePermission):
+    """
+    Permission qui permet aux assistants d'accéder uniquement aux données du médecin auquel ils sont affiliés.
+    """
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == 'assistant'
+    
+    def has_object_permission(self, request, view, obj):
+        # Vérifie que l'assistant est bien affilié au médecin propriétaire des données
+        return obj.doctor == request.user.doctor

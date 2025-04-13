@@ -1,15 +1,13 @@
-
 from medecin.models import Log
 from rest_framework import status
 from admin_app.models import User
 from rest_framework import generics
-from datetime import date, timedelta
-from dossierMedical import serializers
 from django.utils.timezone import now
+from dossierMedical import serializers
 from rest_framework.views import APIView
-from datetime import datetime, timedelta
 from django.utils.timezone import make_aware
 from rest_framework.response import Response
+from datetime import datetime, timedelta, time
 from django.db.models.functions import TruncDate
 from .models import DossierMedical,Patient, Visite
 from rest_framework.exceptions import ValidationError
@@ -29,7 +27,7 @@ class PatientView(APIView):
         self.log_action(request.user, "création d'un patient")
         
         """Créer un patient pour le médecin connecté."""
-        if not request.user.is_doctor:
+        if not request.user.role == "doctor":
             return Response({"erreur": "Seuls les médecins peuvent créer des patients."}, status=status.HTTP_403_FORBIDDEN)
         
         data = request.data.copy()
@@ -47,12 +45,14 @@ class PatientView(APIView):
         self.log_action(request.user, "récupération des informations des patients enregistrés.")
         
         """Obtenir les patients associés au médecin connecté."""
-        if not request.user.is_doctor:
+        if not request.user.role == "doctor":
             return Response({"erreur": "Seuls les médecins peuvent consulter leurs patients."}, status=status.HTTP_403_FORBIDDEN)
-
-        patients = Patient.objects.filter(medecin=request.user)
-        serializer = PatientSerializer(patients, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        try : 
+            patients = Patient.objects.filter(medecin=request.user)
+            serializer = PatientSerializer(patients, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Patient.DoesNotExist:
+            return Response({"erreur": "Patient introuvable ou non associé au médecin connecté."}, status=status.HTTP_404_NOT_FOUND)
 
 
     def put(self, request):
@@ -98,7 +98,7 @@ class PatientView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
     
@@ -125,35 +125,42 @@ class GetPatientDetail(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
-
 
 ##Vue pour récupérer tous les patients
 class GetAllPatients(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Obtenir tous les patients (admin uniquement)."""
-        if not request.user.is_admin:
-            return Response({"erreur": "Accès réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
-        
-        # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, "récupération des informations de tous les patients de la base de données.")
-        
-        patients = Patient.objects.all()
+        user = request.user
+
+        # ADMIN → Tous les patients
+        if user.role == "admin":
+            patients = Patient.objects.all()
+            self.log_action(user, "a récupéré tous les patients de la base de données")
+
+        # INSTITUTION → Patients des médecins qu’elle a créés
+        elif user.role == "institution":
+            doctors = User.objects.filter(role="doctor", institution=user)
+            patients = Patient.objects.filter(medecin__in=doctors)
+            self.log_action(user, "a récupéré les patients de ses médecins")
+
+        else:
+            return Response({"erreur": "Accès réservé aux administrateurs et institutions."},
+                            status=status.HTTP_403_FORBIDDEN)
+
         serializer = PatientSerializer(patients, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
+
     def log_action(self, user, action):
-        """Log l'action effectuée."""
         Log.objects.create(
-            date = now(),
-            libelle=f"{user.username} a {action}.",
+            date=now(),
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
-    
+
     
 ###Vues pour créer, modifier et supprimer un dossier médical
 class DossierMedicalView(APIView):
@@ -239,7 +246,7 @@ class DossierMedicalView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
         
@@ -267,7 +274,7 @@ class DossiersMedicalByPatientView(generics.ListAPIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
     
@@ -389,64 +396,75 @@ class VisitesView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
     
 
     
 ##Get visite en fonction d'une date
-class VisitesByDateView(generics.ListAPIView):
+class AppointmentByDateView(generics.ListAPIView):
     """
     Récupère toutes les visites médicales programmées pour une date spécifique.
     """
     serializer_class = VisiteSerializer
     permission_classes = [IsAuthenticated]
 
+    
     def get_queryset(self):
-        medecin = self.request.user
-        
-        # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, "modification de toutes les visites médicales.")
-        
-        
+        user = self.request.user
         date_visite = self.request.query_params.get('date_visite', None)
-        if not date_visite:
-            return Response({"erreur": "Aucune visite prévue."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Vérifier que la date est bien passée en paramètre
+        if not date_visite:
+            raise ValidationError({"erreur": "Le paramètre 'date_visite' est requis."})
+
+        # Vérifier que la date est au bon format
         try:
             date_obj = datetime.strptime(date_visite, "%Y-%m-%d").date()
         except ValueError:
-            return Response({"erreur": "Le format de la date doit être YYYY-MM-DD."}, status=status.HTTP_404_NOT_FOUND)
+            raise ValidationError({"erreur": "Le format de la date doit être YYYY-MM-DD."})
 
-        # Filtrer les visites par date sans tenir compte de l'heure
-        start_date = make_aware(datetime.combine(date_obj, datetime.min.time()))
-        end_date = make_aware(datetime.combine(date_obj, datetime.max.time()))
-        
-        # Retourner les visites médicales correspondant à la date
-        queryset = Visite.objects.annotate(
-            date_only=TruncDate('dateRdv')
-        ).filter(
-            dateRdv__gte=start_date, 
-            dateRdv__lt=end_date,
-            patient__medecin=medecin.id
-        ).select_related('patient') 
-        
-        # Supprimer les visites passées par rapport à la date et l'heure actuelles
-        now = make_aware(datetime.now())
-        for visite in queryset:
-            if visite.dateRdv < now:
-                visite.delete()
-        return queryset
-    
+        # Construire les bornes de la journée
+        start_date = make_aware(datetime.combine(date_obj, time.min))
+        end_date = make_aware(datetime.combine(date_obj, time.max))
+
+        # Identifier les médecins selon le rôle de l'utilisateur
+        if user.role == "admin":
+            medecins = User.objects.filter(role="doctor")
+        elif user.role == "institution" :
+            medecins = User.objects.filter(role="doctor", institution=user)
+        elif user.role == "assistant":
+            medecins = [user.doctor]
+        else:
+            medecins = [user]
+
+        # Supprimer les visites passées avant le `now`
+        now_dt = now()
+        Visite.objects.filter(
+            dateRdv__lt=now_dt,
+            patient__medecin__in=medecins
+        ).delete()
+
+        # Récupérer les visites à la date précisée
+        visites = Visite.objects.filter(
+            dateRdv__range=(start_date, end_date),
+            patient__medecin__in=medecins
+        ).select_related('patient')
+
+        # Log l'action
+        self.log_action(user, f"a récupéré les visites pour la date {date_visite}")
+
+        return visites
+
     def log_action(self, user, action):
         """Log l'action effectuée."""
         Log.objects.create(
-            date = now(),
-            libelle=f"{user.username} a {action}.",
+            date=now(),
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
-    
+        
     
     
 ###Vue pour obtenir les informations d'une visite spéccifique
@@ -476,23 +494,46 @@ class GetVisiteDetail(APIView):
         )
     
 
-###Get tous les dossiers    
+###Get tous les dossiers 
 class AllVisitesView(generics.ListAPIView):
     serializer_class = VisiteSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
-        # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, "récupération de toutes les visites")
+        user = self.request.user
         
-        """Récupère tous les dossiers médicaux dans la base de données."""
-        return Visite.objects.all()  # Aucun filtre, récupère tous les dossiers
-    
+        # Supprimer les visites passées
+        self.delete_old_visites()   
+
+        if user.role == "admin":
+            queryset = Visite.objects.all()
+            self.log_action(user, "récupéré toutes les visites de la base")
+
+        elif user.role == "institution":
+            doctors = User.objects.filter(role="doctor", institution=user)
+            queryset = Visite.objects.filter(patient__medecin__in=doctors)
+            self.log_action(user, "récupéré les visites des médecins qu’il a créés")
+
+        else:
+            queryset = Visite.objects.none()
+
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        if self.get_queryset().exists():
+            return super().list(request, *args, **kwargs)
+        return Response({"erreur": "Accès réservé aux administrateurs et institutions."}, status=status.HTTP_403_FORBIDDEN)
+
     def log_action(self, user, action):
-        """Log l'action effectuée."""
         Log.objects.create(
-            date = now(),
+            date=now(),
             libelle=f"{user.username} a {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
-    
+        
+    def delete_old_visites(self):
+        """Supprimer les visites dont la date est passée."""
+        now = make_aware(datetime.now())
+        visites_passees = Visite.objects.filter(dateRdv__lt=now)
+        visites_passees.delete()
+        

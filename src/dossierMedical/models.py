@@ -77,7 +77,7 @@ class DossierMedical(models.Model):
     
     RISQUE_CHOICES = [
         ("Faible", "Faible"),
-        ("Intermediaire", "Intermédiaire"),
+        ("Intermediaire", "Intermediaire"),
         ("Haut", "Haut"),
     ]
     

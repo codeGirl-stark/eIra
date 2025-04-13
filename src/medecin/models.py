@@ -1,24 +1,17 @@
 from django.db import models
 from admin_app.models import User
+from institution.models import Institution
 
 # Create your models here.
 class Medecin (models.Model) :
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     specialite = models.CharField(max_length=100)
     years_of_experience = models.PositiveIntegerField(verbose_name="Années d'expérience", blank=True, null=True)
-    phone_number = models.CharField(max_length=255)
+    phone_number = models.CharField(max_length=20)
     bio = models.TextField(blank=True, null=True, default="")
 
     def __str__(self):
         return f"{self.user.email} - {self.specialite}"
-    
-    
-class PhotoProfil(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile_photo')
-    avatar = models.ImageField(upload_to='avatar/', null=True, blank=True)
-    
-    def __str__(self):
-        return f"{self.user.email}"
     
     
 class Log (models.Model) :

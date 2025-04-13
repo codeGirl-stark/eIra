@@ -63,7 +63,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'medecin',
     'admin_app',
-    'dossierMedical'
+    'dossierMedical',
+    'institution',
+    'assistant'
 ]
 
 ##Modèle d'user utilisé

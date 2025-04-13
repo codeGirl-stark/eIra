@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import( 
     DossierMedicalView, 
-    VisitesByDateView, 
+    AppointmentByDateView, 
     PatientView, 
     GetPatientDetail, 
     GetAllPatients,
@@ -27,7 +27,7 @@ urlpatterns = [
     
     path('visite/', VisitesView.as_view(), name='visite'),##CRUD DE VISITE
     path('visite_details/<int:visite_id>/', GetVisiteDetail.as_view(), name='visite-detail'),##GET DETAIL D'UNE VISITE
-    path('getVisites/', VisitesByDateView.as_view(), name='visites-by-date'),##GET INFO D'UNE VISITE QUI CONCERNE UN PATIENT DONNÉ DU DOC EN LIGNE
+    path('getVisites/', AppointmentByDateView.as_view(), name='visites-by-date'),##GET INFO D'UNE VISITE QUI CONCERNE UN PATIENT DONNÉ DU DOC EN LIGNE
     path('Allvisites/', AllVisitesView.as_view(), name='all-visites'),##GET TOUTES LES VISITES DE LA BD
     
 ]

@@ -1,71 +1,140 @@
+import os
+from datetime import datetime
 from medecin.models import Log
 from rest_framework import status
 from django.db.models import Count
-from .models import User, UserVisit
 from rest_framework import serializers
 from rest_framework.views import APIView
-from .permissions import IsActivePermission, IsSuperOrAdminUser
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
-from django.utils.timezone import now, timedelta
+from .models import User, UserVisit, PhotoProfil
 from rest_framework import viewsets, permissions
+from rest_framework.exceptions import ValidationError
 from django.contrib.auth.hashers import check_password
 from django.shortcuts import get_object_or_404, render
 from rest_framework_simplejwt.tokens import RefreshToken
 from dossierMedical.models import Patient, DossierMedical
+from rest_framework_simplejwt.exceptions import TokenError
+from django.utils.timezone import now, timedelta, make_aware
+from .permissions import IsActivePermission, IsSuperOrAdminUser
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from .serializers import AdminUserSerializer, DoctorUserSerializer, LoginSerializer
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from .serializers import (
+    AdminUserSerializer, InstitutionUserSerializer, DoctorUserSerializer, 
+    AssistantUserSerializer, LoginSerializer, PhotoProfilSerializer
+)
 
 User = get_user_model()
 
 ##Création de l'admin
 class AdminUserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.filter(is_admin=True)
+    queryset = User.objects.filter(role='ADMIN')
     serializer_class = AdminUserSerializer
-    permission_classes = [IsSuperOrAdminUser]  # Permettre aux superuser et admin d'ajouter un autre admin
-
-
-##Création du medecin
-class DoctorUserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.filter(is_doctor=True)
-    serializer_class = DoctorUserSerializer
+    permission_classes = [permissions.IsAdminUser]  # Seulement les superadmins peuvent gérer les admins
+    
+    
+# Vue pour gérer les institutions
+class InstitutionUserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.filter(role='INSTITUTION')
+    serializer_class = InstitutionUserSerializer
     permission_classes = [permissions.IsAdminUser,IsActivePermission]
     
     
-    def perform_create(self, serializer):
-        # Enregistrer le nouvel utilisateur qui est un médecin
-        serializer.save(is_doctor=True)
-        # Enregistrer l'action dans les logs
-        self.log_action(self.request.user, "création d'un medecin")
+# Vue pour gérer les médecins
+class DoctorUserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.filter(role='DOCTOR')
+    serializer_class = DoctorUserSerializer
+    permission_classes = [permissions.IsAuthenticated]
     
-    # Action pour activer/désactiver un médecin
-    @action(detail=True, methods=['patch'], permission_classes=[permissions.IsAdminUser])
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == "admin":
+            return User.objects.filter(role="doctor")
+        elif user.role == "institution":
+            return User.objects.filter(role="doctor", institution=user)
+        return User.objects.none()
+
+    def perform_create(self, serializer):
+        serializer.save(role='DOCTOR')
+        self.log_action(self.request.user, "création d'un médecin")
+
+    ### Action pour activer/désactiver un médecin
+    @action(detail=True, methods=['patch'], permission_classes=[permissions.IsAuthenticated])
     def toggle_active(self, request, pk=None):
         doctor = self.get_object()
-        doctor.is_active = not doctor.is_active  # Change l'état actif
+        doctor.is_active = not doctor.is_active
         doctor.save()
-        
         status_message = "activé" if doctor.is_active else "désactivé"
+        self.log_action(self.request.user, f"Medecin {status_message}")
         return Response({"message": f"Le compte médecin a été {status_message} avec succès."})
-    
-    
+
     ###Action pour supprimer un medecin
     def destroy(self, request, *args, **kwargs):
         doctor = self.get_object()
-        doctor.delete()  # Supprime le médecin
-        
+        doctor.delete()
+        self.log_action(self.request.user, "Suppression d'un medecin")
         return Response({"message": "Médecin supprimé avec succès."}, status=status.HTTP_200_OK)
-    
-    
+
     def log_action(self, user, action):
-        """Log l'action effectuée."""
         Log.objects.create(
-            date = now(),
-            libelle=f"{user.username} a {action}.",
+            date=now(),
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
- 
+
+
+# Vue pour gérer les assistants
+class AssistantUserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.filter(role='ASSISTANT')
+    serializer_class = AssistantUserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.role == "admin":
+            return User.objects.filter(role="assistant")
+
+        elif user.role == "institution":
+            # Trouver tous les médecins créés par cette institution
+            doctors = User.objects.filter(role="doctor", institution=user)
+            return User.objects.filter(role="assistant", doctor__in=doctors)
+
+        elif user.role == "doctor":
+            return User.objects.filter(role="assistant", doctor=user)
+
+        return User.objects.none()
+
+    def perform_create(self, serializer):
+        serializer.save(role='ASSISTANT')
+        self.log_action(self.request.user, "création d'un assistant")
+
+    ###Activer ou désactiver un assistant 
+    @action(detail=True, methods=['patch'], permission_classes=[permissions.IsAuthenticated])
+    def toggle_active(self, request, pk=None):
+        assistant = self.get_object()
+        assistant.is_active = not assistant.is_active
+        assistant.save()
+        status_message = "activé" if assistant.is_active else "désactivé"
+        self.log_action(self.request.user, f"Assistant {status_message}")
+        return Response({"message": f"Le compte assistant a été {status_message} avec succès."})
+
+    ###Suppression d'un assistant
+    def destroy(self, request, *args, **kwargs):
+        assistant = self.get_object()
+        assistant.delete()
+        self.log_action(self.request.user, "Suppression d'un assistant")
+        return Response({"message": "Assistant supprimé avec succès."}, status=status.HTTP_200_OK)
+
+    def log_action(self, user, action):
+        Log.objects.create(
+            date=now(),
+            libelle=f"{user.username} {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+
     
 ###Vue pour la connexion   
 class LoginView(APIView):
@@ -97,86 +166,82 @@ class LoginView(APIView):
         }, status=status.HTTP_200_OK)
         
         
-###View pour vérifier si le user est connecté       
+###View pour avoir le profil de l'user actuellement connecté    
 class ProtectedView(APIView):
     permission_classes = [IsAuthenticated]
+    
     def get(self, request, *args, **kwargs):
-        return Response({"message": "Vous êtes authentifié"}, status=status.HTTP_200_OK)
+        user = request.user
+        print(user.role)
+        return Response({
+            "message": "Vous êtes authentifié",
+            "role": user.role  # Retourne uniquement le rôle
+        }, status=status.HTTP_200_OK)
     
     
-class GetDocteurInfo(APIView):
-    serializer_class = DoctorUserSerializer
+class GetUserInfo(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Récupérer les informations du médecin connecté
-        try:
-            doctor = User.objects.get(email=request.user.email, is_doctor=True)
-            
-            # Enregistrer l'action dans les logs
-            self.log_action(request.user, f"Récupération des informations du docteur {doctor.email}")
-            
-            serializer = self.serializer_class(doctor)
+        user = request.user  # Récupère l'utilisateur connecté
+
+        # Détermine le serializer selon le rôle
+        role_serializers = {
+            'admin': AdminUserSerializer,
+            'institution': InstitutionUserSerializer,
+            'doctor': DoctorUserSerializer,
+            'assistant': AssistantUserSerializer
+        }
+
+        serializer_class = role_serializers.get(user.role)
+
+        if serializer_class:
+            self.log_action(user, f"Récupération des informations de l'utilisateur {user.email}")
+            serializer = serializer_class(user)
             return Response(serializer.data, status=status.HTTP_200_OK)
-        except User.DoesNotExist:
-            return Response({"erreur": "Médecin non trouvé."}, status=status.HTTP_404_NOT_FOUND)
-        
+        else:
+            return Response({"erreur": "Rôle non reconnu."}, status=status.HTTP_400_BAD_REQUEST)
+
     def log_action(self, user, action):
         """Log l'action effectuée."""
         Log.objects.create(
-            date = now(),
-            libelle=f"{user.username} a {action}.",
+            date=now(),
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
-        
-class GetAdminInfo(APIView):
-    serializer_class = AdminUserSerializer
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        # Récupérer les informations du médecin connecté
-        try:
-            admin = User.objects.get(email=request.user.email, is_admin=True)
-            
-            # Enregistrer l'action dans les logs
-            self.log_action(request.user, f"Récupération des informations de l'administrateur {admin.email}")
-            
-            serializer = self.serializer_class(admin)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except User.DoesNotExist:
-            return Response({"erreur": "Administrateur non trouvé."}, status=status.HTTP_404_NOT_FOUND)
-        
-    def log_action(self, user, action):
-        """Log l'action effectuée."""
-        Log.objects.create(
-            date = now(),
-            libelle=f"{user.username} a {action}.",
-            medecin=get_object_or_404(User, id=user.id),
-        )
-        
 
-class GetDocteurInfoById(APIView):
-    serializer_class = DoctorUserSerializer
+class GetUserInfoById(APIView):
+    serializer_classes = {
+        'admin': AdminUserSerializer,
+        'institution': InstitutionUserSerializer,
+        'doctor': DoctorUserSerializer,
+        'assistant': AssistantUserSerializer
+    }
     permission_classes = [IsAuthenticated]
 
     def get(self, request, id):
-        # Récupérer le médecin à partir de l'ID
-        doctor = get_object_or_404(User, id=id, is_doctor=True)
+        # Récupérer l'utilisateur à partir de l'ID
+        user = get_object_or_404(User, id=id)
+
+        # Vérifier le rôle et sélectionner le bon serializer
+        serializer_class = self.serializer_classes.get(user.role)
+        if not serializer_class:
+            return Response({"erreur": "Type d'utilisateur inconnu."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Enregistrer l'action dans les logs
-        self.log_action(request.user, f"Récupération des informations du docteur {doctor.email}")
+        self.log_action(request.user, f"Récupération des informations de l'utilisateur {user.email}")
 
-        serializer = self.serializer_class(doctor)
+        serializer = serializer_class(user)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
+
     def log_action(self, user, action):
         """Log l'action effectuée."""
         Log.objects.create(
-            date = now(),
-            libelle=f"{user.username} a {action}.",
+            date=now(),
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
-        )
-        
+        )    
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
@@ -211,11 +276,11 @@ class ChangePasswordView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
  
-        
+ 
 class ChangePseudoView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -238,47 +303,132 @@ class ChangePseudoView(APIView):
         """Log l'action effectuée."""
         Log.objects.create(
             date = now(),
-            libelle=f"{user.username} a {action}.",
+            libelle=f"{user.username} {action}.",
             medecin=get_object_or_404(User, id=user.id),
         )
         
 #visits_last_week = Log.objects.filter(date__gte=now() - timedelta(days=7)).count()
 
+#Vue pour enregistrer et récupérer la photo de profil
+class PhotoProfileView(viewsets.ModelViewSet):
+    queryset = PhotoProfil.objects.all()
+    serializer_class = PhotoProfilSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Enregistrer l'action dans les logs
+        self.log_action(self.request.user, "récupération de la photo de profil")
+        try:
+            user = self.request.user
+              # L'utilisateur est récupéré à partir du token JWT
+            return self.queryset.filter(user=user)
+        except (PhotoProfil.DoesNotExist, TokenError):
+            return PhotoProfil.objects.none()  # Retourne un queryset vide si l'utilisateur n'est pas trouvé ou le token est invalide
+
+    def perform_create(self, serializer):
+        # Enregistrer l'action dans les logs
+        self.log_action(self.request.user, "création de la photo de profil")
+        
+        user = self.request.user  # Récupère l'utilisateur à partir du token JWT
+        try:
+            if PhotoProfil.objects.filter(user=user).exists():
+                avatar = PhotoProfil.objects.get(user=user)
+                serializer.update(avatar, serializer.validated_data)
+            else:
+                serializer.save(user=user)
+        except (User.DoesNotExist, TokenError):
+            raise ValidationError({'error': 'Invalid UID or Token'})
+        
+        
+    def delete(self, request, *args, **kwargs):
+        # Enregistrer l'action dans les logs
+        self.log_action(request.user, "suppression de la photo de profil")
+        
+        # Récupérer l'objet PhotoProfil de l'utilisateur connecté
+        photo_profile = get_object_or_404(PhotoProfil, user=request.user)
+
+        # Vérifier si une photo de profil existe
+        if photo_profile.avatar:
+            # Supprimer physiquement le fichier si le chemin existe
+            if os.path.exists(photo_profile.avatar.path):
+                os.remove(photo_profile.avatar.path)
+            
+            # Supprimer la référence à la photo dans la base de données
+            photo_profile.avatar = None
+            photo_profile.save()
+
+            return Response({"message": "Photo de profil supprimée avec succès."}, status=status.HTTP_200_OK)
+        
+        # Si aucune photo de profil n'est définie
+        return Response({"message": "Aucune photo de profil à supprimer."}, status=status.HTTP_400_BAD_REQUEST)
+    
+    
+    def log_action(self, user, action):
+        """Log l'action effectuée."""
+        Log.objects.create(
+            date = now(),
+            libelle=f"{user.username} {action}.",
+            medecin=get_object_or_404(User, id=user.id),
+        )
+    
+    
 class AdminDashboardView(APIView):
     permission_classes = [IsAuthenticated]
     
     # Fonction générique pour calculer les pourcentages
     def get(self, request):
-        today = now().date()
+        today = datetime.today()
 
         """Retourne les statistiques globales pour le tableau de bord de l'admin."""
-        if not request.user.is_admin:
-            return Response({"erreur": "Accès réservé aux administrateurs."}, status=403)
+        if request.user.role != 'admin':
+            return Response({"erreur": "Accès réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
 
         # Calcul des statistiques
         total_users = User.objects.count()
-        total_admin = User.objects.filter(is_admin=True).count()
-        total_doctors = User.objects.filter(is_doctor=True).count()
+        users_percentage = (total_users / total_users * 100) if total_users > 0 else 0
+        
+        total_admins = User.objects.filter(role='admin').count()
+        admin_percentage = (total_admins / total_users * 100) if total_users > 0 else 0
+         
+        total_institutions = User.objects.filter(role='institution').count()
+        institu_percentage = (total_institutions / total_users * 100) if total_users > 0 else 0
+        
+        total_doctors = User.objects.filter(role='doctor').count()
+        doctors_percentage = (total_doctors / total_users * 100) if total_users > 0 else 0
+        
+        total_assistants = User.objects.filter(role='assistant').count()
+        assistants_percentage = (total_assistants / total_users * 100) if total_users > 0 else 0
+        
         total_patients = Patient.objects.count()
         total_dossiers = DossierMedical.objects.count()
         total_logs = Log.objects.count()
         
-        active_doctors = User.objects.filter(is_doctor=True, is_active=True).count()
-        inactive_doctors = User.objects.filter(is_doctor=True, is_active=False).count()
+        # Comptage des utilisateurs actifs/inactifs
+        active_users = User.objects.filter(is_active=True).count()
+        inactive_users = User.objects.filter(is_active=False).count()
+    
 
-        # Éviter la division par zéro
-        doctor_percentage_active = (active_doctors / total_doctors * 100) if total_doctors > 0 else 0
-        doctor_percentage_inactive = (inactive_doctors / total_doctors * 100) if total_doctors > 0 else 0
+        # Éviter la division par zéro pour les pourcentages
+        users_percentage_active = (active_users / total_users * 100) if total_users > 0 else 0
+        users_percentage_inactive = (inactive_users / total_users * 100) if total_users > 0 else 0
+
 
         # Fréquence de visite
         start_of_week = today - timedelta(days=today.weekday())  # Lundi de cette semaine
         start_of_last_week = start_of_week - timedelta(weeks=1)  # Lundi de la semaine passée
         start_of_month = today.replace(day=1)  # Début du mois en cours
 
-        visits_this_week = UserVisit.objects.filter(timestamp__date__gte=start_of_week).count()
-        visits_last_week = UserVisit.objects.filter(timestamp__date__gte=start_of_last_week, timestamp__date__lt=start_of_week).count()
-        visits_this_month = UserVisit.objects.filter(timestamp__date__gte=start_of_month).count()
+        # Rendre start_of_week, start_of_last_week et start_of_month "timezone-aware"
+        start_of_week = make_aware(datetime.combine(start_of_week, datetime.min.time()))
+        start_of_last_week = make_aware(datetime.combine(start_of_last_week, datetime.min.time()))
+        start_of_month = make_aware(datetime.combine(start_of_month, datetime.min.time()))
 
+        # Filtrage en utilisant `timestamp__gte` au lieu de `timestamp__date__gte`
+        visits_this_week = UserVisit.objects.filter(timestamp__gte=start_of_week).count()
+        visits_last_week = UserVisit.objects.filter(timestamp__gte=start_of_last_week, timestamp__lt=start_of_week).count()
+        visits_this_month = UserVisit.objects.filter(timestamp__gte=start_of_month).count()
+    
         # Calculer la croissance des visites (Éviter division par zéro)
         weekly_growth = ((visits_this_week - visits_last_week) / visits_last_week * 100) if visits_last_week > 0 else 0
         monthly_growth = ((visits_this_month - visits_last_week) / visits_last_week * 100) if visits_last_week > 0 else 0
@@ -286,15 +436,22 @@ class AdminDashboardView(APIView):
         # Résultat
         data = {
             "total_users": total_users,
+            "users_percentage":round(users_percentage, 2),
+            "total_admins": total_admins,
+            "admin_percentage":round(admin_percentage, 2),
+            "total_institutions": total_institutions,
+            "institu_percentage":round(institu_percentage, 2),
             "total_doctors": total_doctors,
-            "total_admin": total_admin,
+            "doctors_percentage":round(doctors_percentage, 2),
+            "total_assistants": total_assistants,
+            "assistants_percentage" : round(assistants_percentage, 2),
             "total_patients": total_patients,
             "total_dossiers": total_dossiers,
             "total_logs": total_logs,
-            "active_doctors": active_doctors,
-            "inactive_doctors": inactive_doctors,
-            "doctor_percentage_active": round(doctor_percentage_active, 2),
-            "doctor_percentage_inactive": round(doctor_percentage_inactive, 2),
+            "active_users": active_users,
+            "inactive_users": inactive_users,
+            "users_percentage_active": round(users_percentage_active, 2),
+            "users_percentage_inactive": round(users_percentage_inactive, 2),
             "visits_this_week": visits_this_week,
             "visits_last_week": visits_last_week,
             "visits_this_month": visits_this_month,
