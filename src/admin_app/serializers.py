@@ -7,6 +7,8 @@ from rest_framework.exceptions import AuthenticationFailed
 from django.contrib.auth import authenticate
 from django.utils.translation import gettext_lazy as _
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 
 # Serializer pour la création d'un administrateur
 class AdminUserSerializer(serializers.ModelSerializer):
@@ -20,7 +22,12 @@ class AdminUserSerializer(serializers.ModelSerializer):
         
     
     def create(self, validated_data):
-        validated_data['password'] = make_password(validated_data['password'])
+        password = validated_data.pop('password', None)
+
+        if not password:
+            raise serializers.ValidationError({"password": "Le mot de passe est requis."})
+        
+        validated_data['password'] = password
         validated_data['role'] = UserRole.ADMIN
         validated_data['is_active'] = True
         return User.objects.create_superuser(**validated_data)
@@ -30,7 +37,12 @@ class AdminUserSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if password:
-            instance.set_password(password)  # Utiliser set_password pour hacher le mot de passe
+            try:
+                validate_password(password, instance)
+            except ValidationError as e:
+                raise serializers.ValidationError({"password": e.messages})
+            instance.set_password(password)
+
         instance.save()
         return instance
     
@@ -46,7 +58,12 @@ class InstitutionUserSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        validated_data['password'] = make_password(validated_data['password'])
+        password = validated_data.pop('password', None)
+
+        if not password:
+            raise serializers.ValidationError({"password": "Le mot de passe est requis."})
+        
+        validated_data['password'] = password
         validated_data['role'] = UserRole.INSTITUTION
         validated_data['is_active'] = True
         return User.objects.create_institution(**validated_data)
@@ -64,6 +81,7 @@ class InstitutionUserSerializer(serializers.ModelSerializer):
 # Serializer pour la création d'un médecin
 class DoctorUserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(validators=[EmailValidator(message="L'adresse e-mail doit être au format valide.")])
+    
     institution = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(role=UserRole.INSTITUTION), write_only=True
     )
@@ -76,7 +94,12 @@ class DoctorUserSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        validated_data['password'] = make_password(validated_data['password'])
+        password = validated_data.pop('password', None)
+
+        if not password:
+            raise serializers.ValidationError({"password": "Le mot de passe est requis."})
+        
+        validated_data['password'] = password
         validated_data['role'] = UserRole.DOCTOR
         validated_data['is_active'] = True
         return User.objects.create_doctor(**validated_data)
@@ -112,7 +135,12 @@ class AssistantUserSerializer(serializers.ModelSerializer):
         return None
 
     def create(self, validated_data):
-        validated_data['password'] = make_password(validated_data['password'])
+        password = validated_data.pop('password', None)
+
+        if not password:
+            raise serializers.ValidationError({"password": "Le mot de passe est requis."})
+        
+        validated_data['password'] = password
         validated_data['role'] = UserRole.ASSISTANT
         validated_data['is_active'] = True
         return User.objects.create_assistant(**validated_data)

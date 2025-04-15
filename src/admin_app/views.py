@@ -251,14 +251,23 @@ class ChangePasswordView(APIView):
         old_password = request.data.get("old_password")
         new_password = request.data.get("new_password")
         new_username = request.data.get("new_username")
+        
+        # Vérification de la présence de l'ancien mot de passe
+        if not old_password or not new_password:
+            return Response({"erreur": "Les champs 'old_password' et 'new_password' sont requis."},
+                            status=status.HTTP_400_BAD_REQUEST)
+            
+        # Vérifier que le nouveau mot de passe est différent
+        if old_password == new_password:
+            return Response({"erreur": "Le nouveau mot de passe doit être différent de l'ancien."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         # Vérifier si l'ancien mot de passe est correct
         if not check_password(old_password, user.password):
             return Response({"erreur": "L'ancien mot de passe est incorrect."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Mise à jour du mot de passe si fourni
-        if new_password:
-            user.set_password(new_password)
+        user.set_password(new_password)
 
         # Mise à jour du username si fourni
         if new_username:
